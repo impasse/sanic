@@ -11,7 +11,7 @@ from collections import deque
 from functools import partial
 from inspect import isawaitable
 from ipaddress import ip_address
-from signal import SIG_IGN, SIGINT, SIGTERM, Signals
+from signal import SIG_IGN, SIGINT, SIGTERM, SIGCHLD, Signals
 from signal import signal as signal_func
 from time import time
 from typing import Type
@@ -1080,15 +1080,27 @@ def serve_multiple(server_settings, workers):
         for process in processes:
             os.kill(process.pid, SIGTERM)
 
-    signal_func(SIGINT, lambda s, f: sig_handler(s, f))
-    signal_func(SIGTERM, lambda s, f: sig_handler(s, f))
-    mp = multiprocessing.get_context("fork")
-
-    for _ in range(workers):
+    def start_process():
         process = mp.Process(target=serve, kwargs=server_settings)
         process.daemon = True
         process.start()
         processes.append(process)
+
+    def sigchld_handler(signal, frame):
+        for process in processes:
+            if not process.is_alive():
+                processes.remove(process)
+        if workers > len(processes):
+            for _ in range(workers - len(processes)):
+                start_process()
+
+    signal_func(SIGINT, lambda s, f: sig_handler(s, f))
+    signal_func(SIGTERM, lambda s, f: sig_handler(s, f))
+    signal_func(SIGCHLD, lambda s, f: sigchld_handler(s, f))
+    mp = multiprocessing.get_context("fork")
+
+    for _ in range(workers):
+        start_process()
 
     for process in processes:
         process.join()
