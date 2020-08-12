@@ -1074,6 +1074,7 @@ def serve_multiple(server_settings, workers):
         server_settings["port"] = None
 
     processes = []
+    main_pid = os.getpid()
 
     def sig_handler(signal, frame):
         logger.info("Received signal %s. Shutting down.", Signals(signal).name)
@@ -1087,6 +1088,8 @@ def serve_multiple(server_settings, workers):
         processes.append(process)
 
     def sigchld_handler(signal, frame):
+        if os.getpid() != main_pid:
+            return
         for process in processes:
             if not process.is_alive():
                 processes.remove(process)
